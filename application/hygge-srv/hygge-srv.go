@@ -1,61 +1,83 @@
 package hygge_srv
 
 import (
-    "github.com/sk3wlabs/go-serial"
-    "github.com/sk3wlabs/go-serial/enumerator"
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/storskegg/hygge-srv/internal/messages"
+
+	"github.com/spf13/cobra"
+	"github.com/storskegg/hygge-srv/internal/bridge"
 )
 
-const (
-    BridgeVID = "239a"
-    BridgePID = "800c"
-)
+func Execute() {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Println(r)
+			os.Exit(100)
+		}
+	}()
 
-type Server struct {
-    sd serial.Port
+	if err := cmdRoot.Execute(); err != nil {
+		//fmt.Println(err)
+		os.Exit(1)
+	}
 }
 
-func NewServer() (*Server, error) {
-    srv := &Server{}
-    err := srv.Init()
-    if err != nil {
-        return nil, err
-    }
-    return srv, nil
+var cmdRoot = &cobra.Command{
+	Use:   "hygge-srv",
+	Short: "A brief description of your application",
+	RunE:  execRoot,
 }
 
-func (s *Server) Close() error {
-    return s.sd.Close()
+func execRoot(cmd *cobra.Command, args []string) error {
+	cmd.SilenceUsage = true
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	log.Println("Connecting to lora bridge")
+
+	bi, err := bridge.New(ctx)
+	if err != nil {
+		log.Println("Failed to connect to lora bridge")
+		return err
+	}
+	defer bi.Close()
+
+	log.Println("Connected to lora bridge")
+
+	chSig := make(chan os.Signal, 1)
+	signal.Notify(chSig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-chSig
+		log.Println("Got signal, shutting down")
+		cancel()
+	}()
+
+	go bi.StartScanning()
+
+	log.Println("Listening")
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case line := <-bi.OutChan():
+			go processLine(line)
+		}
+	}
 }
 
-func (srv *Server) Init() error {
-    dpl, err := enumerator.GetDetailedPortsList()
-    if err != nil {
-        return err
-    }
+func processLine(line string) {
+	brideLine, err := messages.ParseBridgeLine(line)
+	if err != nil {
+		log.Println(err)
+		return
+	}
 
-    mode := serial.Mode{
-        BaudRate:          9600,
-        DataBits:          8,
-        Parity:            serial.NoParity,
-        StopBits:          serial.OneStopBit,
-        InitialStatusBits: nil,
-    }
-
-    for _, d := range dpl {
-        if d.IsUSB && d.VID == BridgeVID && d.PID == BridgePID {
-            srv.sd, err = serial.Open(d.Name, &serial.Mode{
-                BaudRate:          0,
-                DataBits:          0,
-                Parity:            0,
-                StopBits:          0,
-                InitialStatusBits: nil,
-            })
-            if err != nil {
-                return err
-            }
-            break
-        }
-    }
-
-    return nil
+	fmt.Println(brideLine.Message.Data.String())
 }
