@@ -72,5 +72,5 @@ func ParseHygge(line string) (*Hygge, error) {
 }
 
 func (hg *Hygge) String() string {
-	return fmt.Sprintf("[%d] %1.2f%%rh %1.2fC %1.2fV", hg.PacketSequence, hg.Humidity, hg.Temperature, hg.Battery)
+	return fmt.Sprintf("%d\t%1.2f\t%1.2f\t%1.2f", hg.PacketSequence, hg.Humidity, hg.Temperature, hg.Battery)
 }

@@ -8,10 +8,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/storskegg/hygge-srv/internal/messages"
-
+	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/cobra"
 	"github.com/storskegg/hygge-srv/internal/bridge"
+	"github.com/storskegg/hygge-srv/internal/messages"
 )
 
 func Execute() {
@@ -40,6 +42,14 @@ func execRoot(cmd *cobra.Command, args []string) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	prometheus.MustRegister(gaugeHumi)
+	prometheus.MustRegister(gaugeTemp)
+	prometheus.MustRegister(gaugeBatt)
+
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.Default()
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
 	log.Println("Connecting to lora bridge")
 
 	bi, err := bridge.New(ctx)
@@ -62,6 +72,11 @@ func execRoot(cmd *cobra.Command, args []string) error {
 	go bi.StartScanning()
 
 	log.Println("Listening")
+	go func() {
+		if err := r.Run(":8080"); err != nil {
+			log.Println(err)
+		}
+	}()
 	for {
 		select {
 		case <-ctx.Done():
@@ -78,6 +93,10 @@ func processLine(line string) {
 		log.Println(err)
 		return
 	}
+
+	gaugeHumi.Set(brideLine.Message.Data.Humidity)
+	gaugeTemp.Set(brideLine.Message.Data.Temperature)
+	gaugeBatt.Set(brideLine.Message.Data.Battery)
 
 	fmt.Println(brideLine.Message.Data.String())
 }
