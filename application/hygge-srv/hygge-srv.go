@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
@@ -25,7 +27,6 @@ func Execute() {
 	}()
 
 	if err := cmdRoot.Execute(); err != nil {
-		//fmt.Println(err)
 		os.Exit(1)
 	}
 }
@@ -45,6 +46,10 @@ func execRoot(cmd *cobra.Command, args []string) error {
 	prometheus.MustRegister(gaugeHumi)
 	prometheus.MustRegister(gaugeTemp)
 	prometheus.MustRegister(gaugeBatt)
+
+	gaugeHumi.Set(math.NaN())
+	gaugeTemp.Set(math.NaN())
+	gaugeBatt.Set(math.NaN())
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.Default()
@@ -77,6 +82,7 @@ func execRoot(cmd *cobra.Command, args []string) error {
 			log.Println(err)
 		}
 	}()
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -97,6 +103,11 @@ func processLine(line string) {
 	gaugeHumi.Set(brideLine.Message.Data.Humidity)
 	gaugeTemp.Set(brideLine.Message.Data.Temperature)
 	gaugeBatt.Set(brideLine.Message.Data.Battery)
+	log.Println(brideLine.Message.Data.String())
 
-	fmt.Println(brideLine.Message.Data.String())
+	time.Sleep(5 * time.Second)
+
+	gaugeHumi.Set(math.NaN())
+	gaugeTemp.Set(math.NaN())
+	gaugeBatt.Set(math.NaN())
 }
